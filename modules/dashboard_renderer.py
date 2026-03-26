@@ -149,18 +149,14 @@ def render_video_table(videos: list[dict]) -> None:
         })
 
     df = pd.DataFrame(rows)
-    st.dataframe(
-        df,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Views": st.column_config.NumberColumn(format=",.0f"),
-            "Likes": st.column_config.NumberColumn(format=",.0f"),
-            "Comments": st.column_config.NumberColumn(format=",.0f"),
-            "Shares": st.column_config.NumberColumn(format=",.0f"),
-            "ER%": st.column_config.NumberColumn(format="%.2f%%"),
-        },
-    )
+    styled = df.style.format({
+        "Views": "{:,.0f}",
+        "Likes": "{:,.0f}",
+        "Comments": "{:,.0f}",
+        "Shares": "{:,.0f}",
+        "ER%": "{:.2f}%",
+    })
+    st.dataframe(styled, use_container_width=True, hide_index=True)
 
 
 # ── Revenue Section ────────────────────────────────────────────────────────────
@@ -385,16 +381,12 @@ def render_overview_dashboard() -> None:
     st.subheader("📋 So sánh các kênh")
     table_df = df[["label", "follower_count", "video_count", "total_views", "avg_er"]].copy()
     table_df.columns = ["UserID", "Followers", "Videos (period)", "Views (period)", "Avg ER%"]
-    st.dataframe(
-        table_df.sort_values("Followers", ascending=False),
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Followers": st.column_config.NumberColumn(format=",.0f"),
-            "Views (period)": st.column_config.NumberColumn(format=",.0f"),
-            "Avg ER%": st.column_config.NumberColumn(format="%.2f%%"),
-        },
-    )
+    styled_table = table_df.sort_values("Followers", ascending=False).style.format({
+        "Followers": "{:,.0f}",
+        "Views (period)": "{:,.0f}",
+        "Avg ER%": "{:.2f}%",
+    })
+    st.dataframe(styled_table, use_container_width=True, hide_index=True)
 
     st.markdown("---")
 
