@@ -125,9 +125,11 @@ def get_channel_summary_list() -> list[dict]:
             (profile_cache or {}).get("display_name")
             or get_channel_display_name(channel_id)
         )
+        username = (profile_cache or {}).get("username") or display_name
         summaries.append({
             "channel_id": channel_id,
             "display_name": display_name,
+            "username": username,           # unique TikTok @handle
             "follower_count": (profile_cache or {}).get("follower_count", 0),
             "video_count": (profile_cache or {}).get("video_count", 0),
             "avatar_url": (profile_cache or {}).get("avatar_url", ""),

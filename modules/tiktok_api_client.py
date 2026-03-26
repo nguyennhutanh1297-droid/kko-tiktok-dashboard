@@ -46,7 +46,7 @@ def _post(endpoint: str, access_token: str, payload: dict | None = None, fields:
 # ── User Info ──────────────────────────────────────────────────────────────────
 
 USER_INFO_FIELDS = (
-    "open_id,union_id,avatar_url,display_name,"
+    "open_id,union_id,avatar_url,display_name,username,"
     "follower_count,following_count,likes_count,video_count"
 )
 

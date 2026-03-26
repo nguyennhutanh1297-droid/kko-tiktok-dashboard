@@ -344,46 +344,77 @@ def render_overview_dashboard() -> None:
 
     st.title("📊 Tổng hợp tất cả kênh")
 
-    # Load cached data for each channel
+    # ── Time range filter ──────────────────────────────────────────────────────
+    today = date.today()
+    date_range = st.date_input(
+        "📅 Khoảng thời gian",
+        value=(today - timedelta(days=30), today),
+        max_value=today,
+        key="overview_daterange",
+    )
+    if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
+        start_ts = int(datetime.combine(date_range[0], datetime.min.time()).timestamp())
+        end_ts = int(datetime.combine(date_range[1], datetime.max.time()).timestamp())
+    else:
+        start_ts, end_ts = 0, int(datetime.now().timestamp())
+
+    # ── Load & filter per-channel data ────────────────────────────────────────
     channel_data: list[dict] = []
     for s in summaries:
         data = load_channel_data(s["channel_id"])
-        videos = (data or {}).get("videos", [])
+        all_videos = (data or {}).get("videos", [])
+        videos = [v for v in all_videos if start_ts <= (v.get("create_time") or 0) <= end_ts]
         total_views = sum(v.get("view_count") or 0 for v in videos)
         avg_er = (
             round(sum(v.get("engagement_rate", 0) for v in videos) / len(videos), 2)
             if videos else 0
         )
         channel_data.append({
-            "channel_id": s["channel_id"],
+            "username": s.get("username") or s["display_name"],
             "display_name": s["display_name"],
             "follower_count": s["follower_count"],
-            "video_count": s["video_count"],
+            "video_count": len(videos),
             "total_views": total_views,
             "avg_er": avg_er,
             "cache_stale": s["cache_stale"],
         })
 
+    df = pd.DataFrame(channel_data)
+    df["label"] = "@" + df["username"]  # use @userid as identifier
+
+    # ── Channel comparison table (TOP) ────────────────────────────────────────
+    st.subheader("📋 So sánh các kênh")
+    table_df = df[["label", "follower_count", "video_count", "total_views", "avg_er"]].copy()
+    table_df.columns = ["UserID", "Followers", "Videos (period)", "Views (period)", "Avg ER%"]
+    st.dataframe(
+        table_df.sort_values("Followers", ascending=False),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Followers": st.column_config.NumberColumn(format="%d"),
+            "Views (period)": st.column_config.NumberColumn(format="%d"),
+            "Avg ER%": st.column_config.NumberColumn(format="%.2f%%"),
+        },
+    )
+
+    st.markdown("---")
+
     # ── Top-level KPI ─────────────────────────────────────────────────────────
     total_followers = sum(c["follower_count"] for c in channel_data)
-    total_views = sum(c["total_views"] for c in channel_data)
+    total_views_all = sum(c["total_views"] for c in channel_data)
     avg_er_all = (
         round(sum(c["avg_er"] for c in channel_data) / len(channel_data), 2)
         if channel_data else 0
     )
-
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("👥 Tổng Followers", _fmt_number(total_followers))
-    c2.metric("▶️ Tổng Views", _fmt_number(total_views))
+    c2.metric("▶️ Tổng Views", _fmt_number(total_views_all))
     c3.metric("💬 Avg ER%", f"{avg_er_all}%")
     c4.metric("📺 Số kênh", len(channel_data))
 
     st.markdown("---")
 
-    # ── Followers comparison bar chart ────────────────────────────────────────
-    df = pd.DataFrame(channel_data)
-    df["label"] = "@" + df["display_name"]
-
+    # ── Charts ────────────────────────────────────────────────────────────────
     col1, col2 = st.columns(2)
     with col1:
         fig_followers = px.bar(
@@ -400,14 +431,13 @@ def render_overview_dashboard() -> None:
         fig_views = px.bar(
             df.sort_values("total_views", ascending=False),
             x="label", y="total_views",
-            title="Tổng Views theo kênh (cached)",
+            title="Views trong khoảng thời gian",
             labels={"label": "", "total_views": "Views"},
             color="total_views", color_continuous_scale="Reds",
         )
         fig_views.update_layout(height=300, showlegend=False, coloraxis_showscale=False)
         st.plotly_chart(fig_views, use_container_width=True)
 
-    # ── ER% comparison ────────────────────────────────────────────────────────
     fig_er = px.bar(
         df.sort_values("avg_er", ascending=False),
         x="label", y="avg_er",
@@ -415,27 +445,10 @@ def render_overview_dashboard() -> None:
         labels={"label": "", "avg_er": "ER%"},
         color="avg_er", color_continuous_scale="Greens",
     )
-    fig_er.update_layout(height=280, showlegend=False, coloraxis_showscale=False)
+    fig_er.update_layout(height=260, showlegend=False, coloraxis_showscale=False)
     st.plotly_chart(fig_er, use_container_width=True)
 
-    st.markdown("---")
-
-    # ── Channel comparison table ──────────────────────────────────────────────
-    st.subheader("📋 So sánh các kênh")
-    table_df = df[["label", "follower_count", "video_count", "total_views", "avg_er"]].copy()
-    table_df.columns = ["Kênh", "Followers", "Videos", "Total Views", "Avg ER%"]
-    st.dataframe(
-        table_df.sort_values("Followers", ascending=False),
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Followers": st.column_config.NumberColumn(format="%d"),
-            "Total Views": st.column_config.NumberColumn(format="%d"),
-            "Avg ER%": st.column_config.NumberColumn(format="%.2f%%"),
-        },
-    )
-
     # Warn about stale caches
-    stale = [c["display_name"] for c in channel_data if c["cache_stale"]]
+    stale = [c["username"] for c in channel_data if c["cache_stale"]]
     if stale:
         st.warning(f"Cache cũ: {', '.join('@' + n for n in stale)} — chọn kênh đó và Sync để cập nhật.")
