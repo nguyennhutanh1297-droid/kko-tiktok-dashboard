@@ -1,0 +1,6 @@
+.env
+data/tiktok_tokens.json
+data/tiktok_cache/
+data/revenue_data.json
+__pycache__/
+*.pyc
