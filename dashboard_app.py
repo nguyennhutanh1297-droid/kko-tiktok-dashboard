@@ -108,10 +108,11 @@ def _render_connect_channel_button() -> None:
         st.session_state["oauth_state"] = state
 
         auth_url = build_auth_url(REDIRECT_URI, state, challenge)
-        # Open in new tab via JS redirect
-        st.markdown(
-            f'<meta http-equiv="refresh" content="0; url={auth_url}">',
-            unsafe_allow_html=True,
+        # Break out of Streamlit iframe and navigate top-level window to TikTok
+        import streamlit.components.v1 as components
+        components.html(
+            f'<script>window.top.location.href = "{auth_url}";</script>',
+            height=0,
         )
         st.info("Đang chuyển hướng đến TikTok để xác thực...")
         st.stop()
