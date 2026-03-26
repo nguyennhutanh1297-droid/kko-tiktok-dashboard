@@ -206,10 +206,13 @@ def render_revenue_section(channel_id: str) -> float:
 
 # ── Channel sidebar ────────────────────────────────────────────────────────────
 
+OVERVIEW_KEY = "__overview__"
+
+
 def render_channel_sidebar() -> str | None:
     """
-    Render sidebar with list of connected channels.
-    Returns the selected channel_id (or None if none connected).
+    Render sidebar with list of connected channels + overview option.
+    Returns channel_id, or OVERVIEW_KEY for the overview view, or None if none connected.
     """
     st.sidebar.title("📊 TikTok Dashboard")
     summaries = get_channel_summary_list()
@@ -218,23 +221,29 @@ def render_channel_sidebar() -> str | None:
         st.sidebar.warning("Chưa kết nối kênh nào.")
         return None
 
-    options = {s["display_name"]: s["channel_id"] for s in summaries}
-    selected_name = st.sidebar.radio(
-        "Chọn kênh",
-        list(options.keys()),
-        format_func=lambda n: n,
-    )
+    # Overview option first, then individual channels
+    options: dict[str, str] = {"📊 Tổng hợp tất cả": OVERVIEW_KEY}
+    for s in summaries:
+        options[f"@{s['display_name']}"] = s["channel_id"]
+
+    selected_name = st.sidebar.radio("Chọn kênh", list(options.keys()))
     selected_id = options[selected_name]
 
-    # Show mini stats for selected channel in sidebar
-    sel = next(s for s in summaries if s["channel_id"] == selected_id)
-    st.sidebar.markdown("---")
-    st.sidebar.metric("Followers", _fmt_number(sel["follower_count"]))
-    st.sidebar.metric("Videos", sel["video_count"])
-    if sel["synced_at"]:
-        st.sidebar.caption(f"Sync: {_fmt_time(sel['synced_at'])}")
-    if sel["cache_stale"]:
-        st.sidebar.warning("Cache cũ hơn 1 giờ")
+    if selected_id == OVERVIEW_KEY:
+        # Show total stats in sidebar
+        total_followers = sum(s["follower_count"] for s in summaries)
+        st.sidebar.markdown("---")
+        st.sidebar.metric("Tổng Followers", _fmt_number(total_followers))
+        st.sidebar.metric("Số kênh", len(summaries))
+    else:
+        sel = next(s for s in summaries if s["channel_id"] == selected_id)
+        st.sidebar.markdown("---")
+        st.sidebar.metric("Followers", _fmt_number(sel["follower_count"]))
+        st.sidebar.metric("Videos", sel["video_count"])
+        if sel["synced_at"]:
+            st.sidebar.caption(f"Sync: {_fmt_time(sel['synced_at'])}")
+        if sel["cache_stale"]:
+            st.sidebar.warning("Cache cũ hơn 1 giờ")
 
     return selected_id
 
@@ -322,3 +331,111 @@ def render_channel_dashboard(channel_id: str) -> None:
 
     # Revenue
     render_revenue_section(channel_id)
+
+
+# ── Overview dashboard (all channels) ─────────────────────────────────────────
+
+def render_overview_dashboard() -> None:
+    """Aggregated view across all connected channels."""
+    summaries = get_channel_summary_list()
+    if not summaries:
+        st.info("Chưa có kênh nào được kết nối.")
+        return
+
+    st.title("📊 Tổng hợp tất cả kênh")
+
+    # Load cached data for each channel
+    channel_data: list[dict] = []
+    for s in summaries:
+        data = load_channel_data(s["channel_id"])
+        videos = (data or {}).get("videos", [])
+        total_views = sum(v.get("view_count") or 0 for v in videos)
+        avg_er = (
+            round(sum(v.get("engagement_rate", 0) for v in videos) / len(videos), 2)
+            if videos else 0
+        )
+        channel_data.append({
+            "channel_id": s["channel_id"],
+            "display_name": s["display_name"],
+            "follower_count": s["follower_count"],
+            "video_count": s["video_count"],
+            "total_views": total_views,
+            "avg_er": avg_er,
+            "cache_stale": s["cache_stale"],
+        })
+
+    # ── Top-level KPI ─────────────────────────────────────────────────────────
+    total_followers = sum(c["follower_count"] for c in channel_data)
+    total_views = sum(c["total_views"] for c in channel_data)
+    avg_er_all = (
+        round(sum(c["avg_er"] for c in channel_data) / len(channel_data), 2)
+        if channel_data else 0
+    )
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("👥 Tổng Followers", _fmt_number(total_followers))
+    c2.metric("▶️ Tổng Views", _fmt_number(total_views))
+    c3.metric("💬 Avg ER%", f"{avg_er_all}%")
+    c4.metric("📺 Số kênh", len(channel_data))
+
+    st.markdown("---")
+
+    # ── Followers comparison bar chart ────────────────────────────────────────
+    df = pd.DataFrame(channel_data)
+    df["label"] = "@" + df["display_name"]
+
+    col1, col2 = st.columns(2)
+    with col1:
+        fig_followers = px.bar(
+            df.sort_values("follower_count", ascending=False),
+            x="label", y="follower_count",
+            title="Followers theo kênh",
+            labels={"label": "", "follower_count": "Followers"},
+            color="follower_count", color_continuous_scale="Blues",
+        )
+        fig_followers.update_layout(height=300, showlegend=False, coloraxis_showscale=False)
+        st.plotly_chart(fig_followers, use_container_width=True)
+
+    with col2:
+        fig_views = px.bar(
+            df.sort_values("total_views", ascending=False),
+            x="label", y="total_views",
+            title="Tổng Views theo kênh (cached)",
+            labels={"label": "", "total_views": "Views"},
+            color="total_views", color_continuous_scale="Reds",
+        )
+        fig_views.update_layout(height=300, showlegend=False, coloraxis_showscale=False)
+        st.plotly_chart(fig_views, use_container_width=True)
+
+    # ── ER% comparison ────────────────────────────────────────────────────────
+    fig_er = px.bar(
+        df.sort_values("avg_er", ascending=False),
+        x="label", y="avg_er",
+        title="Avg Engagement Rate% theo kênh",
+        labels={"label": "", "avg_er": "ER%"},
+        color="avg_er", color_continuous_scale="Greens",
+    )
+    fig_er.update_layout(height=280, showlegend=False, coloraxis_showscale=False)
+    st.plotly_chart(fig_er, use_container_width=True)
+
+    st.markdown("---")
+
+    # ── Channel comparison table ──────────────────────────────────────────────
+    st.subheader("📋 So sánh các kênh")
+    table_df = df[["label", "follower_count", "video_count", "total_views", "avg_er"]].copy()
+    table_df.columns = ["Kênh", "Followers", "Videos", "Total Views", "Avg ER%"]
+    st.dataframe(
+        table_df.sort_values("Followers", ascending=False),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Followers": st.column_config.NumberColumn(format="%d"),
+            "Total Views": st.column_config.NumberColumn(format="%d"),
+            "Avg ER%": st.column_config.NumberColumn(format="%.2f%%"),
+        },
+    )
+
+    # Warn about stale caches
+    stale = [c["display_name"] for c in channel_data if c["cache_stale"]]
+    if stale:
+        st.warning(f"Cache cũ: {', '.join('@' + n for n in stale)} — chọn kênh đó và Sync để cập nhật.")

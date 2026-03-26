@@ -30,7 +30,12 @@ from modules.tiktok_auth import (
     remove_channel_token,
     save_channel_token,
 )
-from modules.dashboard_renderer import render_channel_dashboard, render_channel_sidebar
+from modules.dashboard_renderer import (
+    render_channel_dashboard,
+    render_channel_sidebar,
+    render_overview_dashboard,
+    OVERVIEW_KEY,
+)
 
 REDIRECT_URI = os.getenv("TIKTOK_REDIRECT_URI", "http://localhost:8502")
 
@@ -147,7 +152,7 @@ def main() -> None:
     selected_channel_id = render_channel_sidebar()
     _render_connect_channel_button()
 
-    if selected_channel_id:
+    if selected_channel_id and selected_channel_id != OVERVIEW_KEY:
         _render_disconnect_button(selected_channel_id)
         st.sidebar.markdown("---")
         st.sidebar.caption("TikTok API v2 · Cache 1h")
@@ -157,7 +162,9 @@ def main() -> None:
         _render_empty_state()
         return
 
-    if selected_channel_id:
+    if selected_channel_id == OVERVIEW_KEY:
+        render_overview_dashboard()
+    elif selected_channel_id:
         render_channel_dashboard(selected_channel_id)
 
 
