@@ -36,6 +36,10 @@ def _fmt_time(ts: int) -> str:
     return datetime.fromtimestamp(ts).strftime("%d/%m/%Y %H:%M")
 
 
+def _is_stale_ts(ts: int) -> bool:
+    return (int(time.time()) - ts) > 3600
+
+
 # ── KPI cards ──────────────────────────────────────────────────────────────────
 
 def render_kpi_cards(profile: dict, videos: list[dict], revenue_total: float) -> None:
@@ -50,8 +54,8 @@ def render_kpi_cards(profile: dict, videos: list[dict], revenue_total: float) ->
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("👥 Followers", _fmt_number(followers))
-    c2.metric("▶️ Tổng Views", _fmt_number(total_views))
-    c3.metric("💬 Avg ER%", f"{avg_er}%")
+    c2.metric("▶️ Views (trong kỳ)", _fmt_number(total_views))
+    c3.metric("💬 Avg ER% (trong kỳ)", f"{avg_er}%")
     c4.metric("💰 Revenue", f"${revenue_total:,.0f}" if revenue_total else "N/A")
 
 
@@ -138,14 +142,17 @@ def render_video_table(videos: list[dict]) -> None:
     rows = []
     for v in videos:
         views = v.get("view_count") or v.get("play_count") or 0
+        duration = v.get("duration", 0)
         rows.append({
             "Tiêu đề": (v.get("title") or "—")[:60],
             "Ngày đăng": _fmt_time(v.get("create_time", 0)),
+            "Dur(s)": duration if duration else 0,
             "Views": views,
             "Likes": v.get("like_count", 0),
             "Comments": v.get("comment_count", 0),
             "Shares": v.get("share_count", 0),
             "ER%": v.get("engagement_rate", 0),
+            "Link": v.get("share_url", ""),
         })
 
     df = pd.DataFrame(rows)
@@ -156,7 +163,14 @@ def render_video_table(videos: list[dict]) -> None:
         "Shares": "{:,.0f}",
         "ER%": "{:.2f}%",
     })
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    st.dataframe(
+        styled,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Link": st.column_config.LinkColumn("🔗", display_text="Xem"),
+        },
+    )
 
 
 # ── Revenue Section ────────────────────────────────────────────────────────────
@@ -219,7 +233,8 @@ def render_channel_sidebar() -> str | None:
     # Overview option first, then individual channels
     options: dict[str, str] = {"📊 Tổng hợp tất cả": OVERVIEW_KEY}
     for s in summaries:
-        options[f"@{s['display_name']}"] = s["channel_id"]
+        handle = s.get("username") or s["display_name"]
+        options[f"@{handle}"] = s["channel_id"]
 
     selected_name = st.sidebar.radio("Chọn kênh", list(options.keys()))
     selected_id = options[selected_name]
@@ -251,7 +266,8 @@ def render_channel_dashboard(channel_id: str) -> None:
     col_title, col_sync = st.columns([5, 1])
     with col_title:
         data = load_channel_data(channel_id)
-        name = (data or {}).get("profile", {}).get("display_name", channel_id)
+        profile = (data or {}).get("profile", {})
+        name = profile.get("username") or profile.get("display_name", channel_id)
         st.title(f"@{name}")
     with col_sync:
         st.write("")
@@ -277,6 +293,13 @@ def render_channel_dashboard(channel_id: str) -> None:
 
     profile = data.get("profile", {})
     all_videos = data.get("videos", [])
+
+    # ── Sync status banner ─────────────────────────────────────────────────────
+    synced_at = data.get("synced_at", 0)
+    if synced_at and _is_stale_ts(synced_at):
+        st.warning(f"⚠️ Cache cũ ({_fmt_time(synced_at)}) — bấm 🔄 Sync để cập nhật")
+    elif synced_at:
+        st.caption(f"Dữ liệu tính đến: {_fmt_time(synced_at)}")
 
     # ── Time range filter ──────────────────────────────────────────────────────
     today = date.today()
