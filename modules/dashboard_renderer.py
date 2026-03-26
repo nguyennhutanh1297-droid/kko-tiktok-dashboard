@@ -27,11 +27,7 @@ from .tiktok_auth import list_connected_channels
 # ── Formatters ─────────────────────────────────────────────────────────────────
 
 def _fmt_number(n: int | float) -> str:
-    if n >= 1_000_000:
-        return f"{n / 1_000_000:.1f}M"
-    if n >= 1_000:
-        return f"{n / 1_000:.1f}K"
-    return str(int(n))
+    return f"{int(n):,}"
 
 
 def _fmt_time(ts: int) -> str:
@@ -158,7 +154,10 @@ def render_video_table(videos: list[dict]) -> None:
         use_container_width=True,
         hide_index=True,
         column_config={
-            "Views": st.column_config.NumberColumn(format="%d"),
+            "Views": st.column_config.NumberColumn(format=",.0f"),
+            "Likes": st.column_config.NumberColumn(format=",.0f"),
+            "Comments": st.column_config.NumberColumn(format=",.0f"),
+            "Shares": st.column_config.NumberColumn(format=",.0f"),
             "ER%": st.column_config.NumberColumn(format="%.2f%%"),
         },
     )
@@ -391,8 +390,8 @@ def render_overview_dashboard() -> None:
         use_container_width=True,
         hide_index=True,
         column_config={
-            "Followers": st.column_config.NumberColumn(format="%d"),
-            "Views (period)": st.column_config.NumberColumn(format="%d"),
+            "Followers": st.column_config.NumberColumn(format=",.0f"),
+            "Views (period)": st.column_config.NumberColumn(format=",.0f"),
             "Avg ER%": st.column_config.NumberColumn(format="%.2f%%"),
         },
     )
