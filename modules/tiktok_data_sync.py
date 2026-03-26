@@ -120,9 +120,14 @@ def get_channel_summary_list() -> list[dict]:
     summaries = []
     for channel_id in list_connected_channels():
         profile_cache = _read_cache(channel_id, "profile")
+        # Prefer display_name from profile cache (real TikTok username) over token fallback
+        display_name = (
+            (profile_cache or {}).get("display_name")
+            or get_channel_display_name(channel_id)
+        )
         summaries.append({
             "channel_id": channel_id,
-            "display_name": get_channel_display_name(channel_id),
+            "display_name": display_name,
             "follower_count": (profile_cache or {}).get("follower_count", 0),
             "video_count": (profile_cache or {}).get("video_count", 0),
             "avatar_url": (profile_cache or {}).get("avatar_url", ""),

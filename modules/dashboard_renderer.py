@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import io
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, date
 
 import pandas as pd
 import plotly.express as px
@@ -272,7 +272,26 @@ def render_channel_dashboard(channel_id: str) -> None:
                 return
 
     profile = data.get("profile", {})
-    videos = data.get("videos", [])
+    all_videos = data.get("videos", [])
+
+    # ── Time range filter ──────────────────────────────────────────────────────
+    today = date.today()
+    default_start = today - timedelta(days=30)
+    date_range = st.date_input(
+        "📅 Khoảng thời gian",
+        value=(default_start, today),
+        max_value=today,
+        key=f"daterange_{channel_id}",
+    )
+    if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
+        start_ts = int(datetime.combine(date_range[0], datetime.min.time()).timestamp())
+        end_ts = int(datetime.combine(date_range[1], datetime.max.time()).timestamp())
+        videos = [v for v in all_videos if start_ts <= (v.get("create_time") or 0) <= end_ts]
+    else:
+        videos = all_videos
+
+    if not videos and all_videos:
+        st.info("Không có video trong khoảng thời gian này.")
 
     # Revenue (load first to pass total into KPI)
     revenue_total = sum(
