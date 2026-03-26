@@ -3,8 +3,11 @@ TikTok Channel Performance Dashboard — main Streamlit entry point.
 Run: streamlit run dashboard/dashboard_app.py
 """
 
+import json
 import os
 import secrets
+import time
+from pathlib import Path
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -29,27 +32,39 @@ from modules.tiktok_auth import (
 )
 from modules.dashboard_renderer import render_channel_dashboard, render_channel_sidebar
 
-# ── OAuth callback redirect URI ────────────────────────────────────────────────
-# When running locally, TikTok redirects back to this URL with ?code=&state=
-REDIRECT_URI = os.getenv("TIKTOK_REDIRECT_URI", "http://localhost:8501")
+REDIRECT_URI = os.getenv("TIKTOK_REDIRECT_URI", "http://localhost:8502")
+
+# Temp file to persist PKCE verifier across sessions/tabs
+_PKCE_STORE = Path(__file__).parent / "data" / "pkce_pending.json"
 
 
-# ── Session state helpers ──────────────────────────────────────────────────────
+# ── PKCE persistence (file-based, survives new tab = new session) ──────────────
 
-def _init_session() -> None:
-    if "pkce_verifier" not in st.session_state:
-        st.session_state["pkce_verifier"] = None
-    if "oauth_state" not in st.session_state:
-        st.session_state["oauth_state"] = None
+def _save_pkce(state: str, verifier: str) -> None:
+    _PKCE_STORE.parent.mkdir(parents=True, exist_ok=True)
+    store = {}
+    if _PKCE_STORE.exists():
+        store = json.loads(_PKCE_STORE.read_text())
+    # Prune entries older than 10 minutes
+    now = time.time()
+    store = {k: v for k, v in store.items() if now - v.get("ts", 0) < 600}
+    store[state] = {"verifier": verifier, "ts": now}
+    _PKCE_STORE.write_text(json.dumps(store))
+
+
+def _pop_pkce(state: str) -> str | None:
+    if not _PKCE_STORE.exists():
+        return None
+    store = json.loads(_PKCE_STORE.read_text())
+    entry = store.pop(state, None)
+    _PKCE_STORE.write_text(json.dumps(store))
+    return entry["verifier"] if entry else None
 
 
 # ── OAuth callback handler ─────────────────────────────────────────────────────
 
 def _handle_oauth_callback() -> bool:
-    """
-    Check query params for OAuth callback (?code=...&state=...).
-    Returns True if callback was handled (page should stop rendering further).
-    """
+    """Check query params for ?code=&state= OAuth callback."""
     params = st.query_params
     code = params.get("code")
     state = params.get("state")
@@ -57,15 +72,9 @@ def _handle_oauth_callback() -> bool:
     if not code:
         return False
 
-    expected_state = st.session_state.get("oauth_state")
-    if state != expected_state:
-        st.error("OAuth state mismatch — có thể là CSRF. Thử lại.")
-        st.query_params.clear()
-        return True
-
-    verifier = st.session_state.get("pkce_verifier")
+    verifier = _pop_pkce(state)
     if not verifier:
-        st.error("Không tìm thấy PKCE verifier trong session. Thử lại.")
+        st.error("Session hết hạn hoặc state không hợp lệ. Vui lòng thử lại.")
         st.query_params.clear()
         return True
 
@@ -77,14 +86,9 @@ def _handle_oauth_callback() -> bool:
             st.query_params.clear()
             return True
 
-    # Use open_id as channel_id; store display_name if returned
-    channel_id = token_data.get("open_id", token_data.get("user", {}).get("open_id", "unknown"))
+    channel_id = token_data.get("open_id", "unknown")
     token_data["display_name"] = token_data.get("display_name", channel_id)
     save_channel_token(channel_id, token_data)
-
-    # Clean up session + query params
-    st.session_state["pkce_verifier"] = None
-    st.session_state["oauth_state"] = None
     st.query_params.clear()
 
     st.success(f"✅ Đã kết nối kênh: {token_data['display_name']}")
@@ -95,38 +99,22 @@ def _handle_oauth_callback() -> bool:
 # ── Connect channel UI ─────────────────────────────────────────────────────────
 
 def _render_connect_channel_button() -> None:
-    """Button that starts OAuth flow."""
+    """Button that starts OAuth flow via link_button (opens new tab)."""
     client_key = os.getenv("TIKTOK_CLIENT_KEY", "")
     if not client_key:
-        st.sidebar.error("Chưa cấu hình TIKTOK_CLIENT_KEY trong .env")
+        st.sidebar.error("Chưa cấu hình TIKTOK_CLIENT_KEY")
         return
 
-    if st.sidebar.button("➕ Kết nối kênh mới"):
-        verifier, challenge = generate_pkce_pair()
-        state = secrets.token_urlsafe(16)
-        st.session_state["pkce_verifier"] = verifier
-        st.session_state["oauth_state"] = state
+    verifier, challenge = generate_pkce_pair()
+    state = secrets.token_urlsafe(16)
+    _save_pkce(state, verifier)
+    auth_url = build_auth_url(REDIRECT_URI, state, challenge)
 
-        auth_url = build_auth_url(REDIRECT_URI, state, challenge)
-        # Use anchor tag with target="_top" to navigate top-level window (works in Streamlit Cloud)
-        st.markdown(
-            f'''
-            <a href="{auth_url}" target="_top"
-               style="display:inline-block;padding:10px 20px;background:#fe2c55;color:white;
-                      border-radius:6px;text-decoration:none;font-weight:bold;font-size:15px;">
-               🔗 Nhấn đây để xác thực TikTok
-            </a>
-            <p style="color:#888;font-size:13px;margin-top:8px;">
-               Sau khi authorize xong, TikTok sẽ tự redirect về app.
-            </p>
-            ''',
-            unsafe_allow_html=True,
-        )
-        st.stop()
+    st.sidebar.link_button("➕ Kết nối kênh mới", auth_url, use_container_width=True)
+    st.sidebar.caption("Mở TikTok → Authorize → quay về tab này")
 
 
 def _render_disconnect_button(channel_id: str) -> None:
-    """Disconnect (remove) a channel's token."""
     if st.sidebar.button("🔌 Ngắt kết nối kênh này", key=f"disc_{channel_id}"):
         remove_channel_token(channel_id)
         st.rerun()
@@ -151,13 +139,11 @@ def _render_empty_state() -> None:
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    _init_session()
-
     # Handle OAuth redirect callback first
     if _handle_oauth_callback():
         return
 
-    # Sidebar: channel list + connect button
+    # Sidebar
     selected_channel_id = render_channel_sidebar()
     _render_connect_channel_button()
 
