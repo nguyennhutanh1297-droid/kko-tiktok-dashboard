@@ -27,14 +27,15 @@ def _get(endpoint: str, access_token: str, params: dict | None = None) -> dict:
     return data
 
 
-def _post(endpoint: str, access_token: str, payload: dict | None = None) -> dict:
-    """Generic POST with Bearer auth."""
+def _post(endpoint: str, access_token: str, payload: dict | None = None, fields: str | None = None) -> dict:
+    """Generic POST with Bearer auth. fields passed as URL query param per TikTok API spec."""
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
     }
     url = f"{BASE_URL}{endpoint}"
-    resp = requests.post(url, headers=headers, json=payload or {}, timeout=DEFAULT_TIMEOUT)
+    params = {"fields": fields} if fields else {}
+    resp = requests.post(url, headers=headers, json=payload or {}, params=params, timeout=DEFAULT_TIMEOUT)
     resp.raise_for_status()
     data = resp.json()
     if data.get("error", {}).get("code", "ok") != "ok":
@@ -73,14 +74,11 @@ def get_video_list(
     Fetch list of user's videos.
     Returns: (videos, has_more, next_cursor)
     """
-    payload: dict = {
-        "max_count": min(max_count, 20),  # API max is 20
-        "fields": VIDEO_LIST_FIELDS,
-    }
+    payload: dict = {"max_count": min(max_count, 20)}
     if cursor is not None:
         payload["cursor"] = cursor
 
-    data = _post("/video/list/", access_token, payload)
+    data = _post("/video/list/", access_token, payload, fields=VIDEO_LIST_FIELDS)
     body = data.get("data", {})
     videos = body.get("videos", [])
     has_more = body.get("has_more", False)
@@ -123,11 +121,8 @@ def get_video_stats(access_token: str, video_ids: list[str]) -> list[dict]:
     # TikTok allows max 20 video IDs per query
     for i in range(0, len(video_ids), 20):
         chunk = video_ids[i : i + 20]
-        payload = {
-            "filters": {"video_ids": chunk},
-            "fields": VIDEO_QUERY_FIELDS,
-        }
-        data = _post("/video/query/", access_token, payload)
+        payload = {"filters": {"video_ids": chunk}}
+        data = _post("/video/query/", access_token, payload, fields=VIDEO_QUERY_FIELDS)
         videos = data.get("data", {}).get("videos", [])
         all_stats.extend(videos)
         if i + 20 < len(video_ids):
