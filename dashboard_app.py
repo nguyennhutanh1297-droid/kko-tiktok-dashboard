@@ -108,13 +108,20 @@ def _render_connect_channel_button() -> None:
         st.session_state["oauth_state"] = state
 
         auth_url = build_auth_url(REDIRECT_URI, state, challenge)
-        # Break out of Streamlit iframe and navigate top-level window to TikTok
-        import streamlit.components.v1 as components
-        components.html(
-            f'<script>window.top.location.href = "{auth_url}";</script>',
-            height=0,
+        # Use anchor tag with target="_top" to navigate top-level window (works in Streamlit Cloud)
+        st.markdown(
+            f'''
+            <a href="{auth_url}" target="_top"
+               style="display:inline-block;padding:10px 20px;background:#fe2c55;color:white;
+                      border-radius:6px;text-decoration:none;font-weight:bold;font-size:15px;">
+               🔗 Nhấn đây để xác thực TikTok
+            </a>
+            <p style="color:#888;font-size:13px;margin-top:8px;">
+               Sau khi authorize xong, TikTok sẽ tự redirect về app.
+            </p>
+            ''',
+            unsafe_allow_html=True,
         )
-        st.info("Đang chuyển hướng đến TikTok để xác thực...")
         st.stop()
 
 
