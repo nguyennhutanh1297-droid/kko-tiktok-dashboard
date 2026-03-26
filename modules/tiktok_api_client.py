@@ -104,8 +104,8 @@ def get_all_videos(access_token: str, limit: int = 50) -> list[dict]:
 # ── Video Query (stats) ────────────────────────────────────────────────────────
 
 VIDEO_QUERY_FIELDS = (
-    "id,title,create_time,cover_image_url,share_url,"
-    "view_count,like_count,comment_count,share_count,play_count"
+    "id,title,create_time,cover_image_url,"
+    "view_count,like_count,comment_count,share_count"
 )
 
 
